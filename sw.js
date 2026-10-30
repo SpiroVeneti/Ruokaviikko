@@ -1,4 +1,4 @@
-const V="rv-2026-10-30a";
+const V="rv-2026-10-30b";
 const SHELL=["./","index.html","app.js","i18n.js","style.css","manifest.webmanifest","prices.json","starter-recipes.json","icons/icon-192.png","icons/icon-512.png"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()))});
 self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==V).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
