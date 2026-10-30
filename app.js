@@ -14,7 +14,7 @@ const DEFAULTS={
   storeNames:{S:"Prisma",K:"K-Citymarket",L:"Lidl"},days:DAYS.slice(),budget:60,appliances:["stove","oven","air_fryer"],
   diet:["meat","fish"],goal:"high_protein",kcal:2200,protein:140,maxMinutes:40,breakfastKcal:450,breakfastProtein:25,lunchKcal:600,lunchProtein:35,
   mode:"daily",dislikes:"",liked:[],disliked:[],pantry:["salt","black_pepper","rapeseed_oil","olive_oil","sugar","wheat_flour","stock_cubes","soy_sauce"],
-  planSource:"auto",newPerWeek:2,voice:false,notify:false,ai:{order:["gemini","groq","openrouter"],models:{gemini:"gemini-2.5-flash",groq:"llama-3.3-70b-versatile",openrouter:"meta-llama/llama-3.3-70b-instruct:free"}},
+  planSource:"auto",newPerWeek:2,voice:false,notify:false,ai:{order:["gemini","groq","openrouter"],models:{gemini:"gemini-flash-latest",groq:"openai/gpt-oss-120b",openrouter:"openai/gpt-oss-120b:free"}},
   timers:{fromSteps:true,autoStart:false,multi:true,early:true,ring:true,sound:"bell",vibrate:true,flash:false,large:true,wake:true,presets:[1,3,5,10,15,20,30],custom:[{label:"Soft eggs",sec:390}]}
 };
 const S={lang:"en",settings:clone(DEFAULTS),prices:{},meta:null,plan:null,book:[],uid:null,db:null,sample:null,canImg:false,ready:false,
@@ -30,6 +30,8 @@ function eur(n){n=Number(n)||0;const s=n.toFixed(2);return (S.lang==="fi"?s.repl
 function nf(n,d){n=Number(n)||0;const s=d==null?String(Math.round(n)):n.toFixed(d);return S.lang==="fi"?s.replace(".",","):s}
 function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 function uid6(){return Math.random().toString(36).slice(2,8)}
+const OLD_MODELS={"gemini-2.5-flash":"gemini-flash-latest","gemini-2.0-flash":"gemini-flash-latest","llama-3.3-70b-versatile":"openai/gpt-oss-120b","meta-llama/llama-3.3-70b-instruct:free":"openai/gpt-oss-120b:free"};
+function fixModels(st){if(st&&st.ai&&st.ai.models)for(const k in st.ai.models)if(OLD_MODELS[st.ai.models[k]])st.ai.models[k]=OLD_MODELS[st.ai.models[k]];return st}
 function merge(base,over){const o=clone(base);if(!over)return o;for(const k in over){if(over[k]&&typeof over[k]==="object"&&!Array.isArray(over[k])&&o[k]&&typeof o[k]==="object"&&!Array.isArray(o[k]))o[k]=merge(o[k],over[k]);else o[k]=clone(over[k])}return o}
 function mmss(s){s=Math.max(0,Math.ceil(s));const m=Math.floor(s/60),x=s%60;return (m<10?"0":"")+m+":"+(x<10?"0":"")+x}
 function fmtQty(q,u){
@@ -53,7 +55,7 @@ function dayName(k,short){const i=dayIdx(k);return i<0?k:(short?t("dshort")[i]:t
 
 /* ---------- cache ---------- */
 const CK="rv_cache_v1";
-function loadCache(){try{const c=JSON.parse(localStorage.getItem(CK)||"null");if(c){if(c.settings)S.settings=merge(DEFAULTS,c.settings);if(c.plan)S.plan=c.plan;if(c.book)S.book=c.book;if(c.prices)S.prices=c.prices;if(c.meta)S.meta=c.meta;if(c.ui){S.view=c.ui.view||S.view;S.planView=c.ui.planView||S.planView}}}catch(e){}}
+function loadCache(){try{const c=JSON.parse(localStorage.getItem(CK)||"null");if(c){if(c.settings)S.settings=fixModels(merge(DEFAULTS,c.settings));if(c.plan)S.plan=c.plan;if(c.book)S.book=c.book;if(c.prices)S.prices=c.prices;if(c.meta)S.meta=c.meta;if(c.ui){S.view=c.ui.view||S.view;S.planView=c.ui.planView||S.planView}}}catch(e){}}
 let cacheT=null;
 function saveCache(){clearTimeout(cacheT);cacheT=setTimeout(()=>{try{localStorage.setItem(CK,JSON.stringify({settings:S.settings,plan:S.plan,book:S.book,prices:S.prices,meta:S.meta,ui:{view:S.view,planView:S.planView}}));S.cached=true}catch(e){}},300)}
 
@@ -113,7 +115,7 @@ async function pull(force){
   S.syncing=true;render();
   try{
     const [st,pl,lib,pr]=await Promise.all(["settings.json","plan.json","library.json","prices.json"].map(p=>ghGet(p)));
-    if(st){S.settings=merge(DEFAULTS,st);S.lang=S.settings.lang;applyTheme()}else saveSettings();
+    if(st){S.settings=fixModels(merge(DEFAULTS,st));S.lang=S.settings.lang;applyTheme()}else saveSettings();
     if(pl){S.plan=pl.empty?null:pl}else if(S.plan)savePlan();
     if(lib&&Array.isArray(lib.recipes)){const local=S.book;S.book=mergeLib(lib.recipes,[]);
       const missing=local.filter(r=>!S.book.some(x=>x._id===r._id)&&!r._synced);if(missing.length){S.book=S.book.concat(missing);saveLibrary()}}
@@ -218,14 +220,15 @@ function errText(e){const c=e&&e.code;
   if(c==="gh")return e.status===401||e.status===403?t("errGhAuth"):e.status===404?t("errGh404"):t("errGh");
   if(c==="rate_limited")return t("errRate");if(c==="invalid_json"||c==="empty_completion")return t("errJson");
   if(c==="images_unavailable")return t("errImg");
-  if(c==="provider")return (e.provider?e.provider+": ":"")+t("errProvider");
+  if(c==="provider"){if(e.list&&e.list.length)return t("errAllFailed")+" "+e.list.join(" · ");return (e.provider?e.provider+": ":"")+t("errProvider")}
   return t("errGeneric")}
 function parseJSONLoose(txt){let s=String(txt||"").trim();if(!s)throw {code:"empty_completion"};
   const f=s.match(/```(?:json)?\s*([\s\S]*?)```/);if(f)s=f[1].trim();
   try{return JSON.parse(s)}catch(e){}
   const a=s.indexOf("{"),b=s.lastIndexOf("}");if(a>=0&&b>a){try{return JSON.parse(s.slice(a,b+1))}catch(e){}}
   throw {code:"invalid_json"}}
-async function callAI(p,prompt,images,signal){
+async function callAI(p,prompt,images,signal){try{return await callAI0(p,prompt,images,signal)}catch(e){if(e&&e.name==="AbortError")throw e;if(e instanceof TypeError)throw {code:"provider",provider:AIP[p],status:0,detail:"network/blocked"};throw e}}
+async function callAI0(p,prompt,images,signal){
   const m=(S.settings.ai.models||{})[p]||DEFAULTS.ai.models[p];const key=String(S.sec[p]).trim();
   if(p==="gemini"){
     const parts=[{text:prompt}];for(const im of images||[])parts.push({inline_data:{mime_type:im.type,data:im.b64}});
@@ -249,13 +252,15 @@ async function ask(prompt,opts){
   const ctl=new AbortController();
   S.busy={msg:opts.msg||"",sub:opts.sub||"",t0:Date.now(),ctl,prov:""};render();
   const iv=setInterval(()=>{const el=document.getElementById("busyc");if(el&&S.busy)el.textContent=Math.round((Date.now()-S.busy.t0)/1000)+" s"+(S.busy.prov?" · "+S.busy.prov:"")},1000);
-  let last=null;
+  let last=null;const errs=[];
   try{
     for(const p of order){S.busy.prov=AIP[p];
       try{const txt=await callAI(p,prompt,opts.images,ctl.signal);return parseJSONLoose(txt)}
-      catch(e){if(ctl.signal.aborted)throw {code:"cancelled"};last=e;console.warn("AI",p,e)}}
-    throw last||{code:"provider"}
+      catch(e){if(ctl.signal.aborted)throw {code:"cancelled"};last=e;errs.push(AIP[p]+": "+shortErr(e));console.warn("AI",p,e)}}
+    if(errs.length>1||(last&&last.code==="provider"))throw {code:"provider",list:errs};
+    throw last||{code:"provider",list:errs}
   }finally{clearInterval(iv);S.busy=null;render()}}
+function shortErr(e){if(!e)return "?";if(e.code==="invalid_json"||e.code==="empty_completion")return "bad answer";if(e.code==="images_unavailable")return "no images";let m="";try{const j=JSON.parse(e.detail||"{}");m=(j.error&&(j.error.message||j.error))||""}catch(x){m=e.detail||""}if(e.status===0||!e.status&&!m)return "network/blocked";return (e.status?e.status+" ":"")+String(m).slice(0,90)}
 function filesToImages(files){return Promise.all((files||[]).map(f=>new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>{const s=String(fr.result);res({type:f.type||"image/jpeg",b64:s.slice(s.indexOf(",")+1)})};fr.onerror=rej;fr.readAsDataURL(f)})))}
 function staplesText(){
   const lines=[];
@@ -348,13 +353,13 @@ async function makePlan(next){
   else if(src==="library"||!canAI){fromLib=pickFromLibrary(nR,ws);need=canAI?nR-fromLib.length:0}
   else{const fresh=Math.min(nR,Math.max(0,+st.newPerWeek||0));fromLib=pickFromLibrary(nR-fresh,ws);need=nR-fromLib.length}
   if(!fromLib.length&&!need){toast(canAI?t("errGeneric"):t("needMore"),6000);return}
-  let fresh=[];
+  let fresh=[],planNote="";
   if(need>0){
     try{const j=await ask(newRecipesPrompt(need,fromLib,ws),{msg:t("planning"),sub:fromLib.length?t("planningMix").replace("{a}",fromLib.length).replace("{b}",need):t("planningS")});
       if(!j||!Array.isArray(j.recipes)||!j.recipes.length)throw {code:"invalid_json"};fresh=j.recipes.slice(0,need).map(normRecipe)}
     catch(e){if(e&&e.code==="cancelled")return;
       const more=pickFromLibrary(need,ws,fromLib.map(r=>r._id));
-      if(fromLib.length+more.length){fromLib=fromLib.concat(more);toast(errText(e)+" "+t("usedLib"),6000)}else{toast(errText(e),6000);return}}}
+      if(fromLib.length+more.length){fromLib=fromLib.concat(more);planNote=errText(e)+" "+t("usedLib")}else{toast(errText(e),8000);return}}}
   for(const r of fresh){r._id="a"+Date.now().toString(36)+uid6();r.kind="ai";r.savedAt=new Date().toISOString();S.book.unshift(clone(r))}
   let chosen=fromLib.concat(fresh);
   if(!chosen.length)return;
@@ -380,7 +385,7 @@ async function makePlan(next){
   }
   if(mode==="prep"&&!plan.prep)plan.prep={minutes:Math.round(Object.values(recipes).reduce((s,r)=>s+(r.minutes||30),0)*0.8+20),steps:Object.values(recipes).map((r,i)=>({at:i*15,text:{en:"Start: "+r.title.en,fi:"Aloita: "+r.title.fi},appliance:(r.appliances||[])[0]||"stove",timer:r.minutes||null})).concat([{at:Object.keys(recipes).length*15+30,text:{en:"Cool, portion and label the boxes",fi:"Jäähdytä, annostele ja merkitse rasiat"},appliance:"",timer:null}])};
   savePlan();saveLibrary();S.view="plan";render();
-  toast(t("planDone").replace("{a}",fromLib.length).replace("{b}",fresh.length),4000)}
+  toast(planNote||t("planDone").replace("{a}",fromLib.length).replace("{b}",fresh.length),planNote?9000:4000)}
 async function ensureSteps(r,where){
   if(r.steps&&r.steps[S.lang]&&r.steps[S.lang].length)return;
   const lib=r.libId&&libById(r.libId)||(where==="book"?r:null);
@@ -415,7 +420,7 @@ async function importRecipe(text,url,files){
   const body=(text||"")+(page?"\n\n"+page:"");
   if(!body.trim()&&!(files&&files.length)){toast(t("errNeedInput"));return}
   let images=[];try{images=await filesToImages(files)}catch(e){}
-  const p="Read the recipe in the text and/or images and convert it to JSON. Reply with ONLY JSON: {\"recipe\":{...}} using the recipe shape below plus \"servings_original\" (servings in the source) and \"source\":{\"name\":\"site or book name if known\"}. Scale ingredient quantities to "+S.settings.people+" servings and set servings to "+S.settings.people+". Include steps in both en and fi. If there is no recipe, reply {\"error\":\"no recipe\"}.\n\nPRICES (match ids where possible)\n"+staplesText()+"\n\nPANTRY: "+pantryText()+"\n\n"+ingredientRules()+"\n\nRecipe shape:\n"+RECIPE_SHAPE+(url?"\n\nSource link: "+url:"")+(body.trim()?"\n\nRECIPE TEXT:\n"+body.slice(0,24000):"");
+  const p="Read the recipe in the text and/or images and convert it to JSON. Reply with ONLY JSON: {\"recipe\":{...}} using the recipe shape below plus \"servings_original\" (servings in the source) and \"source\":{\"name\":\"site or book name if known\"}. Scale ingredient quantities to "+S.settings.people+" servings and set servings to "+S.settings.people+". Include steps in both en and fi. If there is no recipe, reply {\"error\":\"no recipe\"}.\n\nPRICES (match ids where possible)\n"+staplesText()+"\n\nPANTRY: "+pantryText()+"\n\n"+ingredientRules()+"\n\nRecipe shape:\n"+RECIPE_SHAPE+(url?"\n\nSource link: "+url:"")+(body.trim()?"\n\nRECIPE TEXT:\n"+body.slice(0,12000):"");
   try{const j=await ask(p,{msg:t("reading"),images});
     if(!j||j.error||!j.recipe)throw {code:"norecipe"};
     const src=j.recipe.source;const r=normRecipe(j.recipe);
